@@ -29,7 +29,7 @@ module OpcodesTable
     0xA6 => [:ldx, :zp,  3],
     0xB6 => [:ldx, :zpy, 4],
     0xAE => [:ldx, :abs, 4],
-    0xBE => [:ldx, :abx, 4],
+    0xBE => [:ldx, :aby, 4],
 
     # LDY
     0xA0 => [:ldy, :imm, 2],
