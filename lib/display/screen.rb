@@ -36,9 +36,9 @@ class Screen
 
   def cleanup
     return unless @sdl_available
-    @renderer&.destroy
-    @window&.destroy
-    SDL2.quit
+    # Nettoyage basique (OS libérera la mémoire quand le process se termine)
+    @window&.destroy if @window.respond_to?(:destroy)
+    @renderer&.destroy if @renderer.respond_to?(:destroy)
   end
 
   private

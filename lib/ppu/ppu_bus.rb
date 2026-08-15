@@ -1,11 +1,13 @@
 # lib/ppu/ppu_bus.rb
 
 class PPUBus
+  attr_reader :palette_ram
+
   def initialize
     @vram        = Array.new(0x0800, 0x00)
     @palette_ram = Array.new(32, 0x00)
     @cartridge   = nil
-    @access_log  = []  # Log complet des acces PPU pour debug
+    @access_log  = []
   end
 
   def connect_cartridge(cartridge)
@@ -22,18 +24,14 @@ class PPUBus
       data
 
     when 0x2000..0x3EFF
-      address &= 0x2FFF
-      data = @vram[mirror_nametable(address)]
+      mirrored = mirror_nametable(address)
+      data = @vram[mirrored]
       log(:read, address, data, "NT")
       data
 
     when 0x3F00..0x3FFF
-      idx  = mirror_palette(address)
+      idx = mirror_palette(address)
       data = @palette_ram[idx]
-      # En lecture, $3F10/$3F14/$3F18/$3F1C retournent $3F00/$3F04/$3F08/$3F0C
-      if [0x10, 0x14, 0x18, 0x1C].include?(idx)
-        data = @palette_ram[idx - 0x10]
-      end
       log(:read, address, data, "PAL(#{idx})")
       data
 
@@ -52,8 +50,8 @@ class PPUBus
       log(:write, address, data, "CHR")
 
     when 0x2000..0x3EFF
-      address &= 0x2FFF
-      @vram[mirror_nametable(address)] = data
+      mirrored = mirror_nametable(address)
+      @vram[mirrored] = data
       log(:write, address, data, "NT")
 
     when 0x3F00..0x3FFF
@@ -79,18 +77,29 @@ class PPUBus
     @access_log.shift if @access_log.length > 500
   end
 
-  # Miroir palette : les 32 addresses sont toutes distinctes en stockage
+  # Miroir palette : $3F10/$3F14/$3F18/$3F1C sont ALIAS de $3F00/$3F04/$3F08/$3F0C
+  # (même cellule mémoire en lecture ET écriture)
   def mirror_palette(address)
-    address & 0x001F
+    addr = address & 0x001F
+    if addr == 0x10 || addr == 0x14 || addr == 0x18 || addr == 0x1C
+      addr - 0x10
+    else
+      addr
+    end
   end
 
   def mirror_nametable(address)
-    addr = address - 0x2000
+    addr = address & 0x0FFF
     mode = @cartridge&.mirror_mode || :horizontal
 
     if mode == :vertical
+      # NT0 ($2000-$23FF) et NT2 ($2800-$2BFF) partagent VRAM 0
+      # NT1 ($2400-$27FF) et NT3 ($2C00-$2FFF) partagent VRAM 1
       addr & 0x07FF
     else
+      # Horizontal :
+      # NT0 ($2000-$23FF) et NT1 ($2400-$27FF) partagent VRAM 0
+      # NT2 ($2800-$2BFF) et NT3 ($2C00-$2FFF) partagent VRAM 1
       if addr < 0x0800
         addr & 0x03FF
       else

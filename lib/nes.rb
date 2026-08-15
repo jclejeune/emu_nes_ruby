@@ -50,6 +50,7 @@ class NES
       fps = frame_count / elapsed
       print "\rFPS: #{fps.round(1)}  "
     end
+
   end
 
   @screen.cleanup

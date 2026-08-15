@@ -46,6 +46,8 @@ class PPU
     @frame_count    = 0
     @nmi_triggered  = false
     @frame_complete = false
+
+    @universal_bg = 0x22
   end
 
   def connect_cartridge(cartridge)
@@ -333,6 +335,18 @@ class PPU
     end
   end
 
-
+  def debug_dump_palette_line
+    ppu_bus = @bus  # Access au bus interne
+    
+    bg_colors = []
+    16.times { |i| bg_colors << ppu_bus.read(0x3F00 + i) }
+    sp_colors = []
+    16.times { |i| sp_colors << ppu_bus.read(0x3F10 + i) }
+    
+    printf "[PALETTE_DUMP] BG:%s | SP:%s | $3F00=$%02X\n",
+           bg_colors.map{|v| "$"+v.to_s(16)}.join(" "),
+           sp_colors.map{|v| "$"+v.to_s(16)}.join(" "),
+           bg_colors[0]
+  end
 
 end

@@ -2,21 +2,18 @@
 
 module Renderer
   def render_frame_simple
-    universal_bg = @bus.read(0x3F00) & 0x3F
-    @frame_buffer.fill(universal_bg)
+  @universal_bg = @bus.read(0x3F00) & 0x3F
+  @frame_buffer.fill(@universal_bg)
 
-    render_background_simple if show_background?
-    render_sprites_simple if show_sprites?
-  end
+  render_background_simple if show_background?
+  render_sprites_simple    if show_sprites?
+end
 
   private
 
-    def render_background_simple
+  def render_background_simple
     base_nametable = 0x2000 | ((@reg_control & 0x03) * 0x400)
     pattern_base   = (@reg_control & 0x10) != 0 ? 0x1000 : 0x0000
-
-    # Buffer parallèle : true = pixel de fond transparent (index 0)
-    @bg_transparent = Array.new(256 * 240, true)
 
     30.times do |tile_y|
       32.times do |tile_x|
@@ -35,16 +32,14 @@ module Renderer
             screen_y = tile_y * 8 + row
             next if screen_x >= 256 || screen_y >= 240
 
-            idx = screen_y * 256 + screen_x
+            color_index =
+              if pixel == 0
+                @universal_bg
+              else
+                @bus.read(0x3F00 + palette_id * 4 + pixel) & 0x3F
+              end
 
-            if pixel == 0
-              @frame_buffer[idx] = @bus.read(0x3F00) & 0x3F
-              @bg_transparent[idx] = true
-            else
-              color_index = @bus.read(0x3F00 + palette_id * 4 + pixel)
-              @frame_buffer[idx] = color_index & 0x3F
-              @bg_transparent[idx] = false
-            end
+            @frame_buffer[screen_y * 256 + screen_x] = color_index
           end
         end
       end
@@ -62,7 +57,7 @@ module Renderer
     (attribute_byte >> shift) & 0x03
   end
 
-    def render_sprites_simple
+  def render_sprites_simple
     sprite_height = (@reg_control & 0x20) != 0 ? 16 : 8
 
     63.downto(0) do |i|
@@ -71,7 +66,6 @@ module Renderer
       attr       = @oam[i * 4 + 2]
       sprite_x   = @oam[i * 4 + 3]
 
-      # Sprite hors écran
       next if sprite_y >= 240
 
       flip_h     = (attr & 0x40) != 0
@@ -103,7 +97,7 @@ module Renderer
         8.times do |col|
           src_col = flip_h ? col : (7 - col)
           pixel = (((plane1 >> src_col) & 0x01) << 1) | ((plane0 >> src_col) & 0x01)
-          next if pixel == 0  # Sprite transparent
+          next if pixel == 0
 
           x = sprite_x + col
           y = sprite_y + row
@@ -111,11 +105,11 @@ module Renderer
 
           dst = y * 256 + x
 
-          # Priorité : si le sprite est "behind BG" et que le BG n'est PAS transparent, skip
-          next if behind_bg && !@bg_transparent[dst]
+          # Si le sprite est "behind" et qu'on a déjà un tile non-transparent, skip
+          next if behind_bg && @frame_buffer[dst] != @universal_bg
 
-          color_index = @bus.read(0x3F00 + palette_id * 4 + pixel)
-          @frame_buffer[dst] = color_index & 0x3F
+          color_index = @bus.read(0x3F00 + palette_id * 4 + pixel) & 0x3F
+          @frame_buffer[dst] = color_index
         end
       end
     end

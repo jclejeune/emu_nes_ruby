@@ -10,10 +10,9 @@ class Joypad
   end
 
   def read
-    return 0x41 if @strobe
-
-    value = (@shift_register & 0x80) != 0 ? 1 : 0
-    @shift_register = (@shift_register << 1) & 0xFF
+    return @buttons & 0x01 if @strobe
+    value = @shift_register & 0x01
+    @shift_register = (@shift_register >> 1) | 0x80
     value
   end
 
