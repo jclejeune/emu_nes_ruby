@@ -65,53 +65,36 @@ puts "PPUSTATUS: $#{ppu.instance_variable_get(:@reg_status).to_s(16).upcase.rjus
 # Lire la VRAM directement via le PPU bus
 ppu_bus = ppu.instance_variable_get(:@bus)
 
-puts
-puts "=== Palette RAM ==="
-print "BG: "
+
 16.times do |i|
   val = ppu_bus.read(0x3F00 + i)
-  print "$#{val.to_s(16).upcase.rjust(2, '0')} "
 end
-puts
-print "SP: "
+
 16.times do |i|
   val = ppu_bus.read(0x3F10 + i)
-  print "$#{val.to_s(16).upcase.rjust(2, '0')} "
 end
-puts
 
-puts
-puts "=== Nametable 0 (premiers 64 bytes) ==="
+
 4.times do |row|
   16.times do |col|
     val = ppu_bus.read(0x2000 + row * 16 + col)
-    print "#{val.to_s(16).upcase.rjust(2, '0')} "
   end
-  puts
+
 end
 
-puts
-puts "=== Pattern Table 0 (premiers 16 bytes = tile 0) ==="
+
 16.times do |i|
   val = ppu_bus.read(i)
-  print "#{val.to_s(16).upcase.rjust(2, '0')} "
 end
-puts
 
-puts
-puts "=== Pattern Table 1 (premiers 16 bytes) ==="
+
 16.times do |i|
   val = ppu_bus.read(0x1000 + i)
-  print "#{val.to_s(16).upcase.rjust(2, '0')} "
 end
 puts
 
-puts
-puts "=== CHR-ROM premiers 32 bytes ==="
 32.times do |i|
   val = cartridge.ppu_read(i)
-  print "#{val.to_s(16).upcase.rjust(2, '0')} "
-  puts if (i + 1) % 16 == 0
 end
 
 puts

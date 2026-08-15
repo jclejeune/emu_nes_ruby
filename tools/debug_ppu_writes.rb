@@ -42,15 +42,6 @@ end
 
 ppu_bus = ppu.instance_variable_get(:@bus)
 
-puts "\n=== ETAT FINAL PALETTE ===\n"
-print "BG: "
-16.times { |i| print "#{ppu_bus.read(0x3F00 + i).to_s(16).upcase.rjust(2,'0')} " }
-puts
-print "SP: "
-16.times { |i| print "#{ppu_bus.read(0x3F10 + i).to_s(16).upcase.rjust(2,'0')} " }
-puts
-
-puts "\n=== Derniers 100 acces PPU (enfin ceux interessants) ===\n"
 
 # Filtrer pour voir seulement les acces palette et NT 2000-23FF
 ppu_bus.dump_last_accesses(200)

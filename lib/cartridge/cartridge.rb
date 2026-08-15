@@ -7,8 +7,8 @@ class Cartridge
   attr_reader :prg_rom, :chr_rom, :mapper, :mirror_mode
 
   MAPPER_CLASSES = {
-    0 => Mapper000
-  }.freeze
+  0 => Mapper000,
+}.freeze
 
   class UnsupportedMapper < StandardError; end
 

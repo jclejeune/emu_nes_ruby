@@ -11,9 +11,12 @@ end
 
   private
 
-  def render_background_simple
+   def render_background_simple
     base_nametable = 0x2000 | ((@reg_control & 0x03) * 0x400)
     pattern_base   = (@reg_control & 0x10) != 0 ? 0x1000 : 0x0000
+
+    # Mémorise quels pixels du décor sont opaques (pour sprite 0 hit + priorité)
+    @bg_opaque = Array.new(256 * 240, false)
 
     30.times do |tile_y|
       32.times do |tile_x|
@@ -26,25 +29,26 @@ end
 
           8.times do |col|
             bit   = 7 - col
-            pixel = (((plane1 >> bit) & 0x01) << 1) | ((plane0 >> bit) & 0x01)
+            pixel = (((plane1 >> bit) & 1) << 1) | ((plane0 >> bit) & 1)
 
-            screen_x = tile_x * 8 + col
-            screen_y = tile_y * 8 + row
-            next if screen_x >= 256 || screen_y >= 240
+            sx = tile_x * 8 + col
+            sy = tile_y * 8 + row
+            next if sx >= 256 || sy >= 240
 
-            color_index =
-              if pixel == 0
-                @universal_bg
-              else
-                @bus.read(0x3F00 + palette_id * 4 + pixel) & 0x3F
-              end
-
-            @frame_buffer[screen_y * 256 + screen_x] = color_index
+            idx = sy * 256 + sx
+            if pixel == 0
+              @frame_buffer[idx] = @universal_bg
+              @bg_opaque[idx]    = false
+            else
+              @frame_buffer[idx] = @bus.read(0x3F00 + palette_id * 4 + pixel) & 0x3F
+              @bg_opaque[idx]    = true
+            end
           end
         end
       end
     end
   end
+
 
   def background_palette_for_tile(base_nametable, tile_x, tile_y)
     attribute_addr = base_nametable + 0x03C0 + (tile_y / 4) * 8 + (tile_x / 4)
@@ -68,9 +72,9 @@ end
 
       next if sprite_y >= 240
 
-      flip_h     = (attr & 0x40) != 0
-      flip_v     = (attr & 0x80) != 0
-      behind_bg  = (attr & 0x20) != 0
+      flip_h    = (attr & 0x40) != 0
+      flip_v    = (attr & 0x80) != 0
+      behind_bg = (attr & 0x20) != 0
       palette_id = 4 + (attr & 0x03)
 
       sprite_height.times do |row|
@@ -96,7 +100,7 @@ end
 
         8.times do |col|
           src_col = flip_h ? col : (7 - col)
-          pixel = (((plane1 >> src_col) & 0x01) << 1) | ((plane0 >> src_col) & 0x01)
+          pixel = (((plane1 >> src_col) & 1) << 1) | ((plane0 >> src_col) & 1)
           next if pixel == 0
 
           x = sprite_x + col
@@ -105,11 +109,16 @@ end
 
           dst = y * 256 + x
 
-          # Si le sprite est "behind" et qu'on a déjà un tile non-transparent, skip
-          next if behind_bg && @frame_buffer[dst] != @universal_bg
+          # ===== SPRITE 0 HIT =====
+          # Pixel non transparent du sprite 0 sur pixel non transparent du décor
+          if i == 0 && x != 255 && show_background? && @bg_opaque[dst]
+            @reg_status |= 0x40
+          end
 
-          color_index = @bus.read(0x3F00 + palette_id * 4 + pixel) & 0x3F
-          @frame_buffer[dst] = color_index
+          # Priorité : sprite "behind" passe derrière le décor opaque
+          next if behind_bg && @bg_opaque[dst]
+
+          @frame_buffer[dst] = @bus.read(0x3F00 + palette_id * 4 + pixel) & 0x3F
         end
       end
     end

@@ -1,43 +1,40 @@
 # lib/input/joypad.rb
 
 class Joypad
-  BUTTONS = %i[a b select start up down left right].freeze
+  BUTTON = %i[a b select start up down left right].freeze
 
   def initialize
-    @buttons = 0x00
+    @buttons = BUTTON.to_h { |b| [b, false] }
     @strobe = false
-    @shift_register = 0x00
-  end
-
-  def read
-    return @buttons & 0x01 if @strobe
-    value = @shift_register & 0x01
-    @shift_register = (@shift_register >> 1) | 0x80
-    value
-  end
-
-  def write(data)
-    @strobe = (data & 0x01) != 0
-    reload_shift_register if @strobe
+    @index  = 0
   end
 
   def press(button)
-    index = BUTTONS.index(button)
-    return unless index
-
-    @buttons |= (1 << index)
+    @buttons[button] = true if @buttons.key?(button)
   end
 
   def release(button)
-    index = BUTTONS.index(button)
-    return unless index
+    @buttons[button] = false if @buttons.key?(button)
+  end
 
-    @buttons &= ~(1 << index) & 0xFF
+  def write(data)
+    was = @strobe
+    @strobe = (data & 1) != 0
+    @index = 0 if @strobe || was
+  end
+
+  def read
+    return bit(:a) if @strobe
+    return 0x41 if @index >= 8
+
+    value = bit(BUTTON[@index])
+    @index += 1
+    value
   end
 
   private
 
-  def reload_shift_register
-    @shift_register = @buttons
+  def bit(button)
+    0x40 | (@buttons[button] ? 1 : 0)
   end
 end

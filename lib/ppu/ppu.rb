@@ -71,134 +71,105 @@ class PPU
   # CPU interface
   # ==========================================================================
 
-  def cpu_read(address)
-    address &= 0x0007
-    data = 0x00
+  def cpu_read(reg)
+  reg &= 7
+  data = 0x00
 
-    case address
-    when 2
-      data = (@reg_status & 0xE0) | (@ppu_data_buffer & 0x1F)
-      @reg_status &= ~0x80
+  case reg
+  when 2 # $2002
+    data = (@reg_status & 0xE0) | (@ppu_data_buffer & 0x1F)
+    @reg_status &= 0x7F
+    @w = false
+  when 4
+    data = @oam[@reg_oam_addr]
+  when 7
+    data = @ppu_data_buffer
+    @ppu_data_buffer = @bus.read(@v & 0x3FFF)
+    data = @ppu_data_buffer if (@v & 0x3FFF) >= 0x3F00
+    increment_vram_addr
+  end
+
+  data
+end
+
+def cpu_write(reg, data)
+  reg  &= 7
+  data &= 0xFF
+
+  case reg
+  when 0
+    nmi_off = (@reg_control & 0x80) == 0
+    @reg_control = data
+    @t = (@t & 0x73FF) | ((data & 0x03) << 10)
+    if nmi_off && (data & 0x80) != 0 && (@reg_status & 0x80) != 0
+      @nmi_triggered = true
+    end
+  when 1
+    @reg_mask = data
+  when 3
+    @reg_oam_addr = data
+  when 4
+    @oam[@reg_oam_addr] = data
+    @reg_oam_addr = (@reg_oam_addr + 1) & 0xFF
+  when 5
+    if @w
+      @t = (@t & 0x0C1F) | ((data & 0x07) << 12) | ((data & 0xF8) << 2)
       @w = false
-    when 4
-      data = @oam[@reg_oam_addr]
-    when 7
-      data = @ppu_data_buffer
-      @ppu_data_buffer = @bus.read(@v)
-      if @v >= 0x3F00
-        data = @ppu_data_buffer
-        @ppu_data_buffer = @bus.read(@v - 0x1000)
-      end
-      increment_vram_addr
+    else
+      @x = data & 0x07
+      @t = (@t & 0x7FE0) | (data >> 3)
+      @w = true
     end
-
-    data
-  end
-
-   def cpu_write(address, data)
-    address &= 0x0007
-    data    &= 0xFF
-
-    case address
-    when 0
-      nmi_was_off = (@reg_control & 0x80) == 0
-      @reg_control = data
-      @t = (@t & 0x73FF) | ((data & 0x03) << 10)
-      if nmi_was_off && (data & 0x80) != 0 && (@reg_status & 0x80) != 0
-        @nmi_triggered = true
-      end
-
-    when 1
-      @reg_mask = data
-
-    when 3
-      @reg_oam_addr = data
-
-    when 4
-      @oam[@reg_oam_addr] = data
-      @reg_oam_addr = (@reg_oam_addr + 1) & 0xFF
-
-    when 5
-      if !@w
-        @x = data & 0x07
-        @t = (@t & 0x7FE0) | (data >> 3)
-        @w = true
-      else
-        @t = (@t & 0x0C1F) | ((data & 0x07) << 12) | ((data & 0xF8) << 2)
-        @w = false
-      end
-
-    when 6  # <<< LE BUG EST ICI >>>
-      # LOGGING : afficher l'état AVANT modification
-      printf "[PPU] $2006 write: data=$%02X | before -> t=$%04X v=$%04X w=%s\n",
-             data, @t, @v, @w ? "T" : "F"
-
-      if !@w
-        # Premier write : high byte vers t[8-13]
-        @t = (@t & 0x00FF) | ((data & 0x3F) << 8)
-        @w = true
-        printf "     After W1: t=$%04X (set high byte from $%02X)\n", @t, data
-      else
-        # Deuxième write : low byte vers t[0-7], PUIS t -> v
-        @t = (@t & 0xFF00) | data
-        @v = @t   # <--- CRITIQUE : ceci DOIT se produire !
-        @w = false
-        printf "     After W2: t=$%04X v=$%04X (t copied to v!)\n", @t, @v
-      end
-
-    when 7
-      # Écrire data à l'adresse courante @v, puis incrémenter
-      addr_written = @v & 0x3FFF
-      is_palette = addr_written >= 0x3F00
-
-      @bus.write(@v, data)
-
-      printf "[PPU] $2007 write: data=$%02X -> v=$%04X (%s)\n",
-             data, addr_written,
-             is_palette ? "*** PALETTE ***" : "NT/CHR"
-
-      increment_vram_addr
+  when 6
+    if @w
+      @t = (@t & 0xFF00) | data
+      @v = @t
+      @w = false
+    else
+      @t = (@t & 0x00FF) | ((data & 0x3F) << 8)
+      @w = true
     end
+  when 7
+    @bus.write(@v & 0x3FFF, data)
+    increment_vram_addr
   end
+end
 
-  def write_oam(addr, data)
-    @oam[addr & 0xFF] = data & 0xFF
-  end
+def write_oam(addr, data)
+  @oam[addr & 0xFF] = data & 0xFF
+end
 
   # ==========================================================================
   # Main tick
   # ==========================================================================
 
   def step
-    # Début du VBlank
-    if @scanline == 241 && @cycle == 1
-        @reg_status |= 0x80
-        @nmi_triggered = true if (@reg_control & 0x80) != 0
-    end
+  if @scanline == 241 && @cycle == 1
+    @reg_status |= 0x80
+    @nmi_triggered = true if (@reg_control & 0x80) != 0
+  end
 
-    # Pre-render line : clear flags
-    if @scanline == 261 && @cycle == 1
-        @reg_status &= ~0x80 & 0xFF
-        @reg_status &= ~0x40 & 0xFF
-        @reg_status &= ~0x20 & 0xFF
-        @nmi_triggered = false
-    end
+  if @scanline == 261 && @cycle == 1
+    @reg_status &= 0x1F
+    @nmi_triggered = false
+  end
 
-    @cycle += 1
+  if @scanline == 239 && @cycle == 340
+    render_frame_simple
+  end
 
-    if @cycle >= 341
-        @cycle = 0
-        @scanline += 1
+  if @scanline == 261 && @cycle == 340
+    @frame_complete = true
+    @frame_count += 1
+  end
 
-        if @scanline >= 262
-        @scanline = 0
-        @frame_count += 1
-
-        render_frame_simple
-        @frame_complete = true
-        end
-    end
-    end
+  @cycle += 1
+  if @cycle >= 341
+    @cycle = 0
+    @scanline += 1
+    @scanline = 0 if @scanline >= 262
+  end
+end
 
   def nmi_triggered?
     @nmi_triggered
@@ -342,11 +313,6 @@ class PPU
     16.times { |i| bg_colors << ppu_bus.read(0x3F00 + i) }
     sp_colors = []
     16.times { |i| sp_colors << ppu_bus.read(0x3F10 + i) }
-    
-    printf "[PALETTE_DUMP] BG:%s | SP:%s | $3F00=$%02X\n",
-           bg_colors.map{|v| "$"+v.to_s(16)}.join(" "),
-           sp_colors.map{|v| "$"+v.to_s(16)}.join(" "),
-           bg_colors[0]
   end
 
 end

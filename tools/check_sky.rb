@@ -43,15 +43,13 @@ ppu_bus = ppu.instance_variable_get(:@bus)
 
 puts "=== CRITIQUE : Couleur du ciel ===\n"
 
-# Lire toutes les adresses de la palette
-print "$3F00 (BG0-color0/universel): $%02X -> " % ppu_bus.read(0x3F00)
+
 c = NESPalette.rgb(ppu_bus.read(0x3F00)) rescue ["?","?","?"]
 puts "RGB(#{c.join(',')}) - #{c == [84,84,84] ? 'NOIR (bug!)' : 'OK'}"
 
 puts "\nToutes les couleurs 0 de chaque palette BG:"
 4.times do |i|
   val = ppu_bus.read(0x3F00 + i * 4)
-  printf "  Palette %d color0 ($%03X) = $%02X\n", i, 0x3F00 + i*4, val
 end
 
 puts "\n=== Tiles qui composent le CIEL (ligne scanline 10-50) ===\n"
@@ -80,11 +78,6 @@ oam = ppu.instance_variable_get(:@oam)
   flip_h  = (a & 0x40) != 0
   flip_v  = (a & 0x80) != 0
   
-  printf "#%02d: Y=%3d T=$%02X A=$%02X X=%3d Pal=%d %s%s%s\n",
-         i, y, t, a, x, palette,
-         behind ? "BEHIND" : "FRONT",
-         flip_h  ? "HFLIP" : "",
-         flip_v  ? "VFLIP" : ""
 end
 
 if (0...256).all? { |i| oam[i] == 0 }

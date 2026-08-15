@@ -52,8 +52,6 @@ puts "=== Nametable 0 ($2000) — 32×30 tiles ==="
 30.times do |row|
   32.times do |col|
     val = ppu_bus.read(0x2000 + row * 32 + col)
-    print val.to_s(16).upcase.rjust(2, '0')
-    print " "
   end
   puts
 end
@@ -63,8 +61,6 @@ puts "=== Nametable 1 ($2400) — 32×30 tiles ==="
 30.times do |row|
   32.times do |col|
     val = ppu_bus.read(0x2400 + row * 32 + col)
-    print val.to_s(16).upcase.rjust(2, '0')
-    print " "
   end
   puts
 end
@@ -74,23 +70,13 @@ puts "=== Attribute table 0 ($23C0) — 8×8 ==="
 8.times do |row|
   8.times do |col|
     val = ppu_bus.read(0x23C0 + row * 8 + col)
-    print val.to_s(16).upcase.rjust(2, '0')
-    print " "
   end
   puts
 end
 
-puts
-puts "=== Palette ==="
-print "BG: "
-16.times { |i| print "#{ppu_bus.read(0x3F00 + i).to_s(16).upcase.rjust(2, '0')} " }
-puts
-print "SP: "
-16.times { |i| print "#{ppu_bus.read(0x3F10 + i).to_s(16).upcase.rjust(2, '0')} " }
-puts
 
-puts
-puts "=== OAM (sprites non-vides) ==="
+
+
 oam = ppu.instance_variable_get(:@oam)
 64.times do |i|
   y    = oam[i * 4]

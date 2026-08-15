@@ -66,7 +66,6 @@ class PPUBus
     @access_log.last(count).each do |entry|
       type = entry[:type] == :read ? "R" : "W"
       src  = entry[:source]
-      printf "  %s $%04X = $%02X [%s]\n", type, entry[:addr], entry[:val], src
     end
   end
 

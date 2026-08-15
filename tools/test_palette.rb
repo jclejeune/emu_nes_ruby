@@ -46,13 +46,6 @@ puts "\n=== RESULTAT CRITIQUE ===\n\n"
 
 ppu_bus.dump_palette_log
 
-puts "\n=== Palette lue normalement ===\n"
-print "BG: "
-16.times { |i| print "#{ppu_bus.read(0x3F00 + i).to_s(16).upcase.rjust(2, '0')} " }
-puts
-print "SP: "
-16.times { |i| print "#{ppu_bus.read(0x3F10 + i).to_s(16).upcase.rjust(2, '0')} " }
-puts
 
 puts "\n=== Test direct des addresses ==="
 [0x3F00, 0x3F01, 0x3F02, 0x3F03,
@@ -60,5 +53,4 @@ puts "\n=== Test direct des addresses ==="
  0x3F08, 0x3F09, 0x3F0A, 0x3F0B,
  0x3F0C, 0x3F0D, 0x3F0E, 0x3F0F].each do |addr|
   val = ppu_bus.read(addr)
-  printf "$%04X = $%02X (idx=%d)\n", addr, val, addr & 0x1F
 end

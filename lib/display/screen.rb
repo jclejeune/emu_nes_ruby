@@ -105,18 +105,18 @@ class Screen
     true
   end
 
-  def key_map
-    @key_map ||= {
-      SDL2::Key::Z      => :a,
-      SDL2::Key::X      => :b,
-      SDL2::Key::RSHIFT => :select,
-      SDL2::Key::RETURN => :start,
-      SDL2::Key::UP     => :up,
-      SDL2::Key::DOWN   => :down,
-      SDL2::Key::LEFT   => :left,
-      SDL2::Key::RIGHT  => :right,
-    }
-  end
+def key_map
+  @key_map ||= {
+    SDL2::Key::F      => :a,       # F = Bouton A
+    SDL2::Key::D      => :b,       # D = Bouton B
+    SDL2::Key::RSHIFT => :select,  # Shift droit = Select
+    SDL2::Key::SPACE  => :start,   # Espace = Start
+    SDL2::Key::UP     => :up,
+    SDL2::Key::DOWN   => :down,
+    SDL2::Key::LEFT   => :left,
+    SDL2::Key::RIGHT  => :right,
+  }
+end
 
   def handle_key(joypad, sym, action)
     button = key_map[sym]
