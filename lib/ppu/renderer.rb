@@ -2,80 +2,93 @@
 
 module Renderer
   def render_frame_simple
-  @universal_bg = @bus.read(0x3F00) & 0x3F
-  @frame_buffer.fill(@universal_bg)
+    pal = @bus.palette_ram
+    @universal_bg = pal[0] & 0x3F
+    @frame_buffer.fill(@universal_bg)
 
-  render_background_simple if show_background?
-  render_sprites_simple    if show_sprites?
-end
+    refresh_tile_cache unless @tile_cache
+
+    render_background_fast(pal) if show_background?
+    render_sprites_simple(pal)  if show_sprites?
+  end
 
   private
 
-   def render_background_simple
-    base_nametable = 0x2000 | ((@reg_control & 0x03) * 0x400)
-    pattern_base   = (@reg_control & 0x10) != 0 ? 0x1000 : 0x0000
+  # Décode une fois les 512 tiles en tableaux de 64 pixels (0..3)
+  def refresh_tile_cache
+    chr = @chr_rom
+    return unless chr
 
-    # Mémorise quels pixels du décor sont opaques (pour sprite 0 hit + priorité)
-    @bg_opaque = Array.new(256 * 240, false)
+    @tile_cache = Array.new(512) do |t|
+      px   = Array.new(64, 0)
+      base = t * 16
+      8.times do |row|
+        lo = chr[base + row]     || 0
+        hi = chr[base + row + 8] || 0
+        8.times do |col|
+          s = 7 - col
+          px[row * 8 + col] = (((hi >> s) & 1) << 1) | ((lo >> s) & 1)
+        end
+      end
+      px
+    end
+  end
 
-    30.times do |tile_y|
-      32.times do |tile_x|
-        tile_index = @bus.read(base_nametable + tile_y * 32 + tile_x)
-        palette_id = background_palette_for_tile(base_nametable, tile_x, tile_y)
+  def render_background_fast(pal)
+    cache     = @tile_cache
+    buf       = @frame_buffer
+    opaque    = @bg_opaque
+    base_nt   = 0x2000 | ((@reg_control & 0x03) * 0x400)
+    attr_base = base_nt + 0x03C0
+    table_off = (@reg_control & 0x10) != 0 ? 256 : 0
+    ubg       = @universal_bg
 
+    30.times do |ty|
+      sy        = ty * 8
+      attr_addr = attr_base + ((ty & 0x1C) << 1)
+      32.times do |tx|
+        tile  = @bus.read(base_nt + ty * 32 + tx)
+        attr  = @bus.read(attr_addr + (tx >> 2))
+        shift = ((ty & 2) << 1) | (tx & 2)
+        p_off = ((attr >> shift) & 0x03) * 4
+        px    = cache[table_off + tile]
+
+        idx = sy * 256 + tx * 8
         8.times do |row|
-          plane0 = @bus.read(pattern_base + tile_index * 16 + row)
-          plane1 = @bus.read(pattern_base + tile_index * 16 + row + 8)
-
-          8.times do |col|
-            bit   = 7 - col
-            pixel = (((plane1 >> bit) & 1) << 1) | ((plane0 >> bit) & 1)
-
-            sx = tile_x * 8 + col
-            sy = tile_y * 8 + row
-            next if sx >= 256 || sy >= 240
-
-            idx = sy * 256 + sx
-            if pixel == 0
-              @frame_buffer[idx] = @universal_bg
-              @bg_opaque[idx]    = false
+          o = row << 3
+          8.times do |c|
+            p = px[o + c]
+            d = idx + c
+            if p == 0
+              buf[d]    = ubg
+              opaque[d] = false
             else
-              @frame_buffer[idx] = @bus.read(0x3F00 + palette_id * 4 + pixel) & 0x3F
-              @bg_opaque[idx]    = true
+              buf[d]    = pal[p_off + p] & 0x3F
+              opaque[d] = true
             end
           end
+          idx += 256
         end
       end
     end
   end
 
-
-  def background_palette_for_tile(base_nametable, tile_x, tile_y)
-    attribute_addr = base_nametable + 0x03C0 + (tile_y / 4) * 8 + (tile_x / 4)
-    attribute_byte = @bus.read(attribute_addr)
-
-    quadrant_x = (tile_x % 4) / 2
-    quadrant_y = (tile_y % 4) / 2
-    shift = (quadrant_y * 4) + (quadrant_x * 2)
-
-    (attribute_byte >> shift) & 0x03
-  end
-
-  def render_sprites_simple
+  def render_sprites_simple(pal)
     sprite_height = (@reg_control & 0x20) != 0 ? 16 : 8
+    buf    = @frame_buffer
+    opaque = @bg_opaque
 
     63.downto(0) do |i|
       sprite_y   = @oam[i * 4] + 1
       tile_index = @oam[i * 4 + 1]
       attr       = @oam[i * 4 + 2]
       sprite_x   = @oam[i * 4 + 3]
-
       next if sprite_y >= 240
 
       flip_h    = (attr & 0x40) != 0
       flip_v    = (attr & 0x80) != 0
       behind_bg = (attr & 0x20) != 0
-      palette_id = 4 + (attr & 0x03)
+      p_off     = 0x10 + (attr & 0x03) * 4
 
       sprite_height.times do |row|
         src_row = flip_v ? (sprite_height - 1 - row) : row
@@ -86,39 +99,37 @@ end
             table + tile_index * 16 + src_row
           else
             table = (tile_index & 0x01) != 0 ? 0x1000 : 0x0000
-            tile  = tile_index & 0xFE
-            local_row = src_row
-            if local_row >= 8
-              tile += 1
-              local_row -= 8
+            tt = tile_index & 0xFE
+            lr = src_row
+            if lr >= 8
+              tt += 1
+              lr -= 8
             end
-            table + tile * 16 + local_row
+            table + tt * 16 + lr
           end
 
         plane0 = @bus.read(pattern_addr)
         plane1 = @bus.read(pattern_addr + 8)
 
         8.times do |col|
-          src_col = flip_h ? col : (7 - col)
-          pixel = (((plane1 >> src_col) & 1) << 1) | ((plane0 >> src_col) & 1)
-          next if pixel == 0
+          src_col = flip_h ? col : 7 - col
+          p = (((plane1 >> src_col) & 1) << 1) | ((plane0 >> src_col) & 1)
+          next if p == 0
 
           x = sprite_x + col
           y = sprite_y + row
           next if x < 0 || x >= 256 || y < 0 || y >= 240
 
-          dst = y * 256 + x
+          d = y * 256 + x
 
-          # ===== SPRITE 0 HIT =====
-          # Pixel non transparent du sprite 0 sur pixel non transparent du décor
-          if i == 0 && x != 255 && show_background? && @bg_opaque[dst]
+          # Sprite 0 hit
+          if i == 0 && x != 255 && show_background? && opaque[d]
             @reg_status |= 0x40
           end
 
-          # Priorité : sprite "behind" passe derrière le décor opaque
-          next if behind_bg && @bg_opaque[dst]
+          next if behind_bg && opaque[d]
 
-          @frame_buffer[dst] = @bus.read(0x3F00 + palette_id * 4 + pixel) & 0x3F
+          buf[d] = pal[p_off + p] & 0x3F
         end
       end
     end

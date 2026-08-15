@@ -48,10 +48,16 @@ class PPU
     @frame_complete = false
 
     @universal_bg = 0x22
+
+    @bg_opaque  = Array.new(256 * 240, false)
+    @tile_cache = nil
+    @chr_rom    = nil
   end
 
   def connect_cartridge(cartridge)
     @bus.connect_cartridge(cartridge)
+    @chr_rom    = cartridge.chr_rom
+    @tile_cache = nil
   end
 
   def reset
@@ -131,6 +137,7 @@ def cpu_write(reg, data)
     end
   when 7
     @bus.write(@v & 0x3FFF, data)
+    @tile_cache = nil if (@v & 0x3FFF) < 0x2000  # CHR-RAM modifiée → invalider
     increment_vram_addr
   end
 end

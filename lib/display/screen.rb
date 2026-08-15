@@ -27,64 +27,49 @@ class Screen
   end
 
   def poll_events(joypad1, joypad2)
-    if @sdl_available
-      poll_sdl_events(joypad1, joypad2)
-    else
-      true
-    end
+    @sdl_available ? poll_sdl_events(joypad1, joypad2) : true
   end
 
   def cleanup
     return unless @sdl_available
-    # Nettoyage basique (OS libérera la mémoire quand le process se termine)
-    @window&.destroy if @window.respond_to?(:destroy)
-    @renderer&.destroy if @renderer.respond_to?(:destroy)
+    @renderer&.destroy
+    @window&.destroy
+    SDL2.quit if SDL2.respond_to?(:quit)
   end
 
   private
 
   def init_sdl
     SDL2.init(SDL2::INIT_VIDEO)
-
     @window = SDL2::Window.create(
       "NES Emulator",
-      SDL2::Window::POS_CENTERED,
-      SDL2::Window::POS_CENTERED,
-      WIDTH * SCALE,
-      HEIGHT * SCALE,
-      0
+      SDL2::Window::POS_CENTERED, SDL2::Window::POS_CENTERED,
+      WIDTH * SCALE, HEIGHT * SCALE, 0
     )
-
-    @renderer = @window.create_renderer(
-      -1,
-      SDL2::Renderer::Flags::ACCELERATED
-    )
-
-    # Pré-calculer les rectangles destination pour chaque pixel
-    # Chaque pixel NES = un carré SCALE×SCALE sur l'écran
-    @rects = Array.new(WIDTH * HEIGHT) do |i|
-      x = (i % WIDTH) * SCALE
-      y = (i / WIDTH) * SCALE
-      SDL2::Rect.new(x, y, SCALE, SCALE)
-    end
+    @renderer = @window.create_renderer(-1, SDL2::Renderer::Flags::ACCELERATED)
   end
 
+  # RLE : un fill_rect par plage de pixels identiques (au lieu de 61 440)
   def render_sdl
+    pixels = @frame_buffer.pixels
     @renderer.draw_color = [0, 0, 0]
     @renderer.clear
 
-    pixels = @frame_buffer.pixels
+    y = 0
+    while y < HEIGHT
+      row = y * WIDTH
+      sy  = y * SCALE
+      x   = 0
+      while x < WIDTH
+        color = pixels[row + x]
+        x2 = x + 1
+        x2 += 1 while x2 < WIDTH && pixels[row + x2] == color
 
-    pixels.each_with_index do |argb, i|
-      r = (argb >> 16) & 0xFF
-      g = (argb >> 8)  & 0xFF
-      b = argb         & 0xFF
-
-      # Skip les pixels noirs (optimisation)
-      next if r == 0 && g == 0 && b == 0
-
-      @renderer.draw_color = [r, g, b]
-      @renderer.fill_rect(@rects[i])
+        @renderer.draw_color = [(color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF]
+        @renderer.fill_rect(SDL2::Rect.new(x * SCALE, sy, (x2 - x) * SCALE, SCALE))
+        x = x2
+      end
+      y += 1
     end
 
     @renderer.present
@@ -93,8 +78,7 @@ class Screen
   def poll_sdl_events(joypad1, _joypad2)
     while (event = SDL2::Event.poll)
       case event
-      when SDL2::Event::Quit
-        return false
+      when SDL2::Event::Quit then return false
       when SDL2::Event::KeyDown
         return false if event.sym == SDL2::Key::ESCAPE
         handle_key(joypad1, event.sym, :press)
@@ -105,27 +89,22 @@ class Screen
     true
   end
 
-def key_map
-  @key_map ||= {
-    SDL2::Key::F      => :a,       # F = Bouton A
-    SDL2::Key::D      => :b,       # D = Bouton B
-    SDL2::Key::RSHIFT => :select,  # Shift droit = Select
-    SDL2::Key::SPACE  => :start,   # Espace = Start
-    SDL2::Key::UP     => :up,
-    SDL2::Key::DOWN   => :down,
-    SDL2::Key::LEFT   => :left,
-    SDL2::Key::RIGHT  => :right,
-  }
-end
+  def key_map
+    @key_map ||= {
+      SDL2::Key::F      => :a,
+      SDL2::Key::D      => :b,
+      SDL2::Key::RSHIFT => :select,
+      SDL2::Key::SPACE  => :start,
+      SDL2::Key::UP     => :up,
+      SDL2::Key::DOWN   => :down,
+      SDL2::Key::LEFT   => :left,
+      SDL2::Key::RIGHT  => :right,
+    }
+  end
 
   def handle_key(joypad, sym, action)
     button = key_map[sym]
     return unless button
-
-    if action == :press
-      joypad.press(button)
-    else
-      joypad.release(button)
-    end
+    action == :press ? joypad.press(button) : joypad.release(button)
   end
 end
