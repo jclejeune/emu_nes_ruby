@@ -52,7 +52,6 @@ class PPU
     @bg_opaque  = Array.new(256 * 240, false)
     @tile_cache = nil
     @chr_rom    = nil
-    @last_split = 0
   end
 
   def connect_cartridge(cartridge)

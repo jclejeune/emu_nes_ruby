@@ -32,15 +32,19 @@ class NES
     puts "CPU PC: $#{@cpu.pc.to_s(16).upcase.rjust(4, '0')}"
   end
 
+
 def run
   @running = true
   clock = Clock.new
+
   while @running
     step_frame
     @screen.render(@ppu.frame_buffer)
     @ppu.consume_frame!
     @running = @screen.poll_events(@joypad1, @joypad2)
+    clock.wait_next_frame
   end
+
   @screen.cleanup
 end
 
