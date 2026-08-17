@@ -6,6 +6,7 @@ require_relative "ppu/ppu"
 require_relative "cartridge/cartridge"
 require_relative "input/joypad"
 require_relative "display/screen"
+require_relative "clock"
 
 class NES
   def initialize
@@ -33,6 +34,7 @@ class NES
 
 def run
   @running = true
+  clock = Clock.new
   while @running
     step_frame
     @screen.render(@ppu.frame_buffer)
@@ -45,12 +47,10 @@ end
 def step_frame
   loop do
     cpu_cycles = @cpu.step
-    (cpu_cycles * 3).times do
-      @ppu.step
-      if @ppu.nmi_triggered?
-        @cpu.nmi
-        @ppu.clear_nmi
-      end
+    @ppu.advance(cpu_cycles * 3)
+    if @ppu.nmi_triggered?
+      @cpu.nmi
+      @ppu.clear_nmi
     end
     break if @ppu.frame_complete
   end

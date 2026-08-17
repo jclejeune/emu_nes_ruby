@@ -52,6 +52,7 @@ class PPU
     @bg_opaque  = Array.new(256 * 240, false)
     @tile_cache = nil
     @chr_rom    = nil
+    @last_split = 0
   end
 
   def connect_cartridge(cartridge)
@@ -151,32 +152,18 @@ end
   # ==========================================================================
 
   def step
-  if @scanline == 241 && @cycle == 1
-    @reg_status |= 0x80
-    @nmi_triggered = true if (@reg_control & 0x80) != 0
+    tick
   end
 
-  if @scanline == 261 && @cycle == 1
-    @reg_status &= 0x1F
-    @nmi_triggered = false
+  # Fait avancer la PPU de n points (dots) d'un coup, via une boucle
+  # interne — au lieu de forcer l'appelant a faire n appels de methode
+  # separes (chaque appel Ruby a un cout fixe non negligeable, et on en
+  # faisait ~89000 par frame rien que pour la comptabilite scanline/cycle).
+  # Le comportement (mise a jour de @scanline/@cycle, NMI, rendu, fin de
+  # frame) est rigoureusement identique a n appels de #step d'affilee.
+  def advance(n)
+    n.times { tick }
   end
-
-  if @scanline == 239 && @cycle == 340
-    render_frame_simple
-  end
-
-  if @scanline == 261 && @cycle == 340
-    @frame_complete = true
-    @frame_count += 1
-  end
-
-  @cycle += 1
-  if @cycle >= 341
-    @cycle = 0
-    @scanline += 1
-    @scanline = 0 if @scanline >= 262
-  end
-end
 
   def nmi_triggered?
     @nmi_triggered
@@ -191,6 +178,125 @@ end
   end
 
   private
+
+  def tick
+    if @scanline == 241 && @cycle == 1
+      @reg_status |= 0x80
+      @nmi_triggered = true if (@reg_control & 0x80) != 0
+    end
+
+    if @scanline == 261 && @cycle == 1
+      @reg_status &= 0x1F
+      @nmi_triggered = false
+    end
+
+    # Sprite 0 hit : detecte a la BONNE ligne pendant le rendu, pas
+    # seulement en fin de frame. Des jeux comme SMB attendent ce
+    # signal (pour figer le bandeau du haut pendant que le reste
+    # scrolle) en tournant en boucle sur $2002 ; s'il n'arrive qu'a
+    # la ligne 239, cette boucle d'attente bouffe quasiment tout le
+    # budget CPU de la frame et decale le jeu d'une frame sur deux
+    # (=> le scroll clignote entre "reset" et "vraie valeur").
+    if @cycle == 2 && @scanline >= 0 && @scanline < 240 &&
+       (@reg_status & 0x40) == 0 && rendering_enabled?
+      check_sprite_zero_hit
+    end
+
+    if @scanline == 239 && @cycle == 340
+      render_frame_simple
+    end
+
+    if @scanline == 261 && @cycle == 340
+      @frame_complete = true
+      @frame_count += 1
+    end
+
+    @cycle += 1
+    if @cycle >= 341
+      @cycle = 0
+      @scanline += 1
+      @scanline = 0 if @scanline >= 262
+    end
+  end
+
+  # Verifie si le sprite OAM #0 recouvre un pixel de fond opaque sur
+  # LA LIGNE COURANTE (@scanline), et met le bit 0x40 de PPUSTATUS
+  # si oui. Approximation : precis a la ligne pres (pas au cycle/pixel
+  # pres comme le vrai hardware), largement suffisant pour debloquer
+  # une boucle d'attente de jeu.
+  def check_sprite_zero_hit
+    sprite_height = (@reg_control & 0x20) != 0 ? 16 : 8
+    sprite_y = @oam[0] + 1
+    row = @scanline - sprite_y
+    return if row < 0 || row >= sprite_height
+
+    tile_index = @oam[1]
+    attr       = @oam[2]
+    sprite_x   = @oam[3]
+
+    flip_h  = (attr & 0x40) != 0
+    flip_v  = (attr & 0x80) != 0
+    src_row = flip_v ? (sprite_height - 1 - row) : row
+
+    pattern_addr =
+      if sprite_height == 8
+        table = (@reg_control & 0x08) != 0 ? 0x1000 : 0x0000
+        table + tile_index * 16 + src_row
+      else
+        table = (tile_index & 0x01) != 0 ? 0x1000 : 0x0000
+        tt = tile_index & 0xFE
+        lr = src_row
+        if lr >= 8
+          tt += 1
+          lr -= 8
+        end
+        table + tt * 16 + lr
+      end
+
+    plane0 = @bus.read(pattern_addr)
+    plane1 = @bus.read(pattern_addr + 8)
+
+    8.times do |col|
+      x = sprite_x + col
+      next if x >= 255
+
+      src_col = flip_h ? col : (7 - col)
+      sp_px = (((plane1 >> src_col) & 1) << 1) | ((plane0 >> src_col) & 1)
+      next if sp_px == 0
+      next unless background_opaque_at?(x, @scanline)
+
+      @reg_status |= 0x40
+      return
+    end
+  end
+
+  # Opacite du pixel de fond a (x, y) ecran, en tenant compte du
+  # scroll courant (@t/@x) — meme logique que render_background_fast
+  # mais pour un seul pixel, appele uniquement pendant la fenetre
+  # verticale du sprite 0 (quelques lignes par frame, cout negligeable).
+  def background_opaque_at?(x, y)
+    return false unless show_background?
+
+    fine_x = @x
+    fine_y = (@t >> 12) & 0x07
+    tot_x  = x + fine_x
+    tot_y  = y + fine_y
+
+    v = @t
+    (tot_x / 8).times { v = increment_coarse_x(v) }
+    (tot_y / 8).times { v = increment_coarse_y(v) }
+
+    nt_addr = 0x2000 | (v & 0x0FFF)
+    tile = @bus.read(nt_addr)
+    return false unless tile
+
+    refresh_tile_cache unless @tile_cache
+    table_off = (@reg_control & 0x10) != 0 ? 256 : 0
+    px = @tile_cache[table_off + tile]
+    return false unless px
+
+    px[(tot_y % 8) * 8 + (tot_x % 8)] != 0
+  end
 
   # ==========================================================================
   # VRAM address helpers

@@ -8,6 +8,15 @@ class PPUBus
     @palette_ram = Array.new(32, 0x00)
     @cartridge   = nil
     @access_log  = []
+    @logging     = false   # active seulement pour du debug ponctuel (cf debug_log!)
+  end
+
+  # A appeler manuellement (console/outil de debug) pour activer le
+  # logging des acces PPU. Reste desactive par defaut : logguer chaque
+  # lecture/ecriture PPU (des milliers par frame) coute cher pour rien
+  # tant que personne ne lit @access_log.
+  def debug_log!(enabled = true)
+    @logging = enabled
   end
 
   def connect_cartridge(cartridge)
@@ -72,6 +81,7 @@ class PPUBus
   private
 
   def log(type, addr, val, source)
+    return unless @logging
     @access_log << { type: type, addr: addr, val: val, source: source }
     @access_log.shift if @access_log.length > 500
   end
